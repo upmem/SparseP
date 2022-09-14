@@ -1,7 +1,7 @@
 #!/bin/dash
 
 ## FIXME
-input_path="/path/to/input/matrix/files/mtx/"
+input_path="/home/upmemstaff/dgerin/SparseP/inputs/"
 
 python3 run_CSR.py ${input_path}
 python3 run_COO-rgrn.py ${input_path}

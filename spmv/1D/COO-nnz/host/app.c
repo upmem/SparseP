@@ -92,9 +92,12 @@ int main(int argc, char **argv) {
 
     unsigned int i;
 
+    printf("read matrix\n");
     // Initialize input data 
     A = readCOOMatrix(p.fileName);
+    printf("sort matrix\n");
     sortCOOMatrix(A);
+    printf("init vector\n");
 
     // Allocate input vector
     x = (val_dt *) malloc(A->ncols * sizeof(val_dt)); 
@@ -109,6 +112,7 @@ int main(int argc, char **argv) {
     uint64_t max_nnz_per_dpu = 0;
 
 
+    printf("map matrix\n");
     // Timer for measurements
     Timer timer;
 
@@ -221,6 +225,7 @@ int main(int argc, char **argv) {
     assert(total_bytes <= DPU_CAPACITY && "Bytes needed exceeded MRAM size");
 
 
+    printf("copy arg\n");
     // Copy input arguments to DPUs
     i = 0;
     DPU_FOREACH(dpu_set, dpu, i) {
@@ -229,6 +234,7 @@ int main(int argc, char **argv) {
     }
     DPU_ASSERT(dpu_push_xfer(dpu_set, DPU_XFER_TO_DPU, "DPU_INPUT_ARGUMENTS", 0, sizeof(dpu_arguments_t), DPU_XFER_DEFAULT));
 
+    printf("copy matrix\n");
     // Copy input matrix to DPUs
     startTimer(&timer, 0);
     // Copy input array
@@ -292,6 +298,11 @@ int main(int argc, char **argv) {
     printf("\n");
     printf("Load Matrix ");
     printTimer(&timer, 0);
+    printf("ncols %u\n", A->ncols);
+    printf("nr dpus %u\n", NR_DPUS);
+    printf("time sec %f\n",  timer.time_sec[0]);
+    printf("time msec %f\n",  timer.time[0]);
+    printf("Load Matrix BW GB per sec \t\t\t%f\n", (float)( 1e-9 * (NR_DPUS) * A->ncols * sizeof(val_dt) ) / (timer.time_sec[1]));
     printf("Load Input Vector ");
     printTimer(&timer, 1);
     printf("Kernel ");

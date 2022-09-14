@@ -5,6 +5,13 @@
 
 echo "Starting download..."
 
+if [ ! -f "rajat31.mtx" ]; then
+  wget -N https://suitesparse-collection-website.herokuapp.com/MM/Rajat/rajat31.tar.gz
+  tar xzf rajat31.tar.gz
+  mv rajat31/rajat31.mtx .
+  rm -rf rajat31/
+  rm "rajat31.tar.gz"
+fi
 
 if [ ! -f "ldoor.mtx" ]; then
   wget -N https://suitesparse-collection-website.herokuapp.com/MM/GHS_psdef/ldoor.tar.gz
