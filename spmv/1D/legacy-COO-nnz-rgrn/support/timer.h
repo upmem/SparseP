@@ -23,13 +23,13 @@ static void stopTimer(Timer *timer, int i) {
     timer->time_sec[i] = timer->time[i] * 1e-6;
 }
 
-static void printTimer(Timer *timer, int i) {
+static void printTimer(Timer *timer, int i) { 
     if (i == 0 || i == 2)
-        printf("Time (ms): \t\t\t%f\n", timer->time[i] / (1000));
+        printf("Time (ms): \t\t\t%f\n", timer->time[i] / (1000)); 
     else if (i == 1)
-        printf("Time (ms): \t\t%f\n", timer->time[i] / (1000));
+        printf("Time (ms): \t\t%f\n", timer->time[i] / (1000)); 
     else
-        printf("Time (ms): \t%f\n", timer->time[i] / (1000));
+        printf("Time (ms): \t%f\n", timer->time[i] / (1000)); 
 }
 
 #endif

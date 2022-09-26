@@ -14,7 +14,7 @@
 #include "utils.h"
 
 /**
- * @brief COO matrix format
+ * @brief COO matrix format 
  */
 struct COOMatrix {
     uint32_t nrows;
@@ -25,7 +25,7 @@ struct COOMatrix {
 };
 
 /**
- * @brief read matrix from input fileName in COO format
+ * @brief read matrix from input fileName in COO format 
  * @param filename to read matrix (mtx format)
  */
 static struct COOMatrix *readCOOMatrix(const char* fileName) {
@@ -35,8 +35,8 @@ static struct COOMatrix *readCOOMatrix(const char* fileName) {
     FILE* fp = fopen(fileName, "r");
     uint32_t rowindx, colindx;
     int32_t val;
-    char *line;
-    char *token;
+    char *line; 
+    char *token; 
     line = (char *) malloc(1000 * sizeof(char));
     int done = false;
     int i = 0;
@@ -72,7 +72,7 @@ static struct COOMatrix *readCOOMatrix(const char* fileName) {
 
             cooMtx->nnzs[i].rowind = rowindx - 1; // Convert indexes to start at 0
             cooMtx->nnzs[i].colind = colindx - 1; // Convert indexes to start at 0
-            cooMtx->nnzs[i].val = val;
+            cooMtx->nnzs[i].val = val; 
             i++;
         }
     }
@@ -83,7 +83,7 @@ static struct COOMatrix *readCOOMatrix(const char* fileName) {
 
 }
 
-/**
+/** 
  * brief Comparator for Quicksort
  */
 int comparator(void *a, void *b) {
@@ -103,7 +103,7 @@ int comparator(void *a, void *b) {
 static void sortCOOMatrix(struct COOMatrix *cooMtx) {
 
     qsort(cooMtx->nnzs, cooMtx->nnz, sizeof(struct elem_t), comparator);
-
+    
     int prev_row = cooMtx->nnzs[0].rowind;
     int cur_nnz = 0;
     for(unsigned int n = 0; n < cooMtx->nnz; n++) {
@@ -125,7 +125,7 @@ static void sortCOOMatrix(struct COOMatrix *cooMtx) {
 }
 
 /**
- * @brief deallocate matrix in COO format
+ * @brief deallocate matrix in COO format 
  * @param matrix in COO format
  */
 static void freeCOOMatrix(struct COOMatrix *cooMtx) {

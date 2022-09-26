@@ -1,3 +1,34 @@
+## upmem update performances with rank interleaving and numa ctrl
+
+## perf results post process scripts
+pip3 install --user plotnine
+cd ~/SparseP/plot
+plot1D.py  plot_exec_time_reduced.py
+
+## rank interleaving
+
+## display numa config
+numactl --hardware
+available: 2 nodes (0-1)
+node 0 cpus: 0 1 2 3 4 5 6 7 16 17 18 19 20 21 22 23
+node 0 size: 128058 MB
+node 0 free: 105924 MB
+node 1 cpus: 8 9 10 11 12 13 14 15 24 25 26 27 28 29 30 31
+node 1 size: 129019 MB
+node 1 free: 117907 MB
+node distances:
+node   0   1 
+  0:  10  21 
+  1:  21  10 
+
+## numa all
+numactl --interleave=all 
+
+## numa interleave specify
+UPMEM_PROFILE='nrThreadPerPool=8' numactl --interleave=0,1,2 ./host
+
+
+
 ## SparseP Software Package v1.0
 
 <p align="center">
