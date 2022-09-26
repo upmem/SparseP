@@ -14,7 +14,7 @@ result_path = "results/"
 def run(input_path):
 
     pwd = os.getcwd()
-    path = pwd.replace("scripts/run_1D", "") + "spmv/1D/COO-nnz-rgrn"
+    path = pwd.replace("scripts/run_1D", "") + "spmv/1D/legacy-COO-nnz-rgrn"
     os.chdir(path)
     #os.rmdir(result_path)
     if os.path.exists(result_path):

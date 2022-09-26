@@ -11,7 +11,7 @@ BLNC_TSKLT_NNZ ?= 1 # Load-balance nnzs across tasklets
 define conf_filename
 	${BUILDDIR}/.NR_RANKS_$(1)_NR_TASKLETS_$(2)_TYPE_$(3).conf
 endef
-CONF := $(call conf_filename,${NR_DPUS},${NR_TASKLETS},${TYPE})
+CONF := $(call conf_filename,${NR_RANKS},${NR_TASKLETS},${TYPE})
 
 HOST_TARGET := ${BUILDDIR}/spmv_host
 DPU_TARGET := ${BUILDDIR}/spmv_dpu
@@ -26,8 +26,8 @@ __dirs := $(shell mkdir -p ${BUILDDIR})
 
 #COMMON_FLAGS := -Wall -Wextra -g -I${COMMON_INCLUDES}
 COMMON_FLAGS := -g -I${COMMON_INCLUDES}
-HOST_FLAGS := ${COMMON_FLAGS} -std=c11 -O3 `dpu-pkg-config --cflags --libs dpu` -D${TYPE} -DNR_TASKLETS=${NR_TASKLETS} -DNR_RANKS=${NR_RANKS} -DBLNC_TSKLT_ROW=${BLNC_TSKLT_ROW} -DBLNC_TSKLT_NNZ=${BLNC_TSKLT_NNZ} -fopenmp 
-DPU_FLAGS := ${COMMON_FLAGS} -O2 -DNR_TASKLETS=${NR_TASKLETS} -D${TYPE} 
+HOST_FLAGS := ${COMMON_FLAGS} -std=c11 -O3 `dpu-pkg-config --cflags --libs dpu` -D${TYPE} -DNR_TASKLETS=${NR_TASKLETS} -DNR_RANKS=${NR_RANKS} -DBLNC_TSKLT_ROW=${BLNC_TSKLT_ROW} -DBLNC_TSKLT_NNZ=${BLNC_TSKLT_NNZ} -fopenmp
+DPU_FLAGS := ${COMMON_FLAGS} -O2 -DNR_TASKLETS=${NR_TASKLETS} -D${TYPE}
 
 all: ${HOST_TARGET} ${DPU_TARGET}
 
@@ -46,3 +46,4 @@ clean:
 
 test: all
 	./${HOST_TARGET}
+

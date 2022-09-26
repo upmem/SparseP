@@ -32,7 +32,7 @@ static char *strremove(char *str, const char *sub) {
 
 static struct Params input_params(int argc, char **argv) {
     struct Params p;
-
+  
     // Set default input matrix
     char *rel_dir = "spmv/1D/COO-nnz-rgrn";
     char *abs_dir = (char *) malloc(1024);
