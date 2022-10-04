@@ -296,6 +296,26 @@ int main(int argc, char **argv) {
                              sizeof(uint32_t)));
     break;
   }
+
+  val_dt *y_dpu = (val_dt *) calloc((A->nrows), sizeof(val_dt));
+
+  // merge output results (remove padding)
+  startTimer(&timer, 2);
+  i = 0;
+  unsigned int n,j,t;
+  for (n = 0; n < nr_of_dpus; n++) {
+      for (t = 0; t < NR_TASKLETS; t++) {
+          unsigned int cur_rows = input_args[n].rows_per_tasklet[t];
+          if ((cur_rows + input_args[n].start_row[t] > dpu_info[n].rows_per_dpu) && (cur_rows != 0))
+              cur_rows = dpu_info[n].rows_per_dpu - input_args[n].start_row[t];
+          for (j = 0; j < cur_rows; j++) {
+                y_dpu[i] = y[n * NR_TASKLETS * max_rows_per_tasklet + t * max_rows_per_tasklet + j];
+              i++;
+          }
+      }
+  }
+  stopTimer(&timer, 2);
+
   float kernel_time_sec = ((float)kernel_cycles) / clocks_per_sec;
   float kernel_time_msec = (1e3 * (float)kernel_time_sec);
 
@@ -317,7 +337,7 @@ int main(int argc, char **argv) {
   printf("IO xfer + kernel ");
   printTimer(&timer, 1);
   printf("Output merge ");
-  printf("\t\t\t%f\n",(float)(0));
+  printf("\t\t\t%f\n",(float)timer.time_sec[2]/timer.time_sec[1]);
   printf("Kernel Time msec \t\t\t%f\n", kernel_time_msec);
   printf("Load Input BW GB per sec \t\t%f\n", input_x_bw_gbps);
   printf("Load Matrix BW GB per sec \t\t%f\n",
@@ -340,20 +360,9 @@ int main(int argc, char **argv) {
   spmv_host(y_host, A, x);
   stopTimer(&timer, 4);
   bool status = true;
-  i = 0;
-  unsigned int n,j,t;
-  for (n = 0; n < nr_of_dpus; n++) {
-      for (t = 0; t < NR_TASKLETS; t++) {
-          unsigned int cur_rows = input_args[n].rows_per_tasklet[t];
-          if ((cur_rows + input_args[n].start_row[t] > dpu_info[n].rows_per_dpu) && (cur_rows != 0))
-              cur_rows = dpu_info[n].rows_per_dpu - input_args[n].start_row[t];
-          for (j = 0; j < cur_rows; j++) {
-              if(y_host[i] != y[n * NR_TASKLETS * max_rows_per_tasklet + t * max_rows_per_tasklet + j]) {
-                  status = false;
-              }
-              i++;
-          }
-      }
+  for (i = 0; i< A->nrows; i++) {
+    if (y_host[i] != y[i])
+        status = false;
   }
   if (status) {
       printf("[" ANSI_COLOR_GREEN "OK" ANSI_COLOR_RESET "] Outputs are equal\n");
