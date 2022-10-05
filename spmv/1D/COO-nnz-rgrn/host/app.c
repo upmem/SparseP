@@ -416,12 +416,13 @@ int main(int argc, char **argv) {
       DPU_ASSERT(dpu_prepare_xfer(
           dpu, A->nnzs + dpu_info[rank_index][i].prev_nnz_dpu));
     }
-    DPU_ASSERT(dpu_push_xfer(
-        ranks[rank_index], DPU_XFER_TO_DPU, DPU_MRAM_HEAP_POINTER_NAME,
-        rank_max_rows_per_tasklet * NR_TASKLETS * sizeof(val_dt) +
-            A->ncols * sizeof(val_dt),
-        max_nnz_per_dpu[rank_index] * sizeof(struct elem_t), DPU_XFER_ASYNC));
   }
+  DPU_ASSERT(dpu_push_xfer(
+      *dpu_set, DPU_XFER_TO_DPU, DPU_MRAM_HEAP_POINTER_NAME,
+      rank_max_rows_per_tasklet * NR_TASKLETS * sizeof(val_dt) +
+          A->ncols * sizeof(val_dt),
+      rank_max_nnz_per_dpu * sizeof(struct elem_t), DPU_XFER_ASYNC));
+
   dpu_sync(*dpu_set);
   stopTimer(&timer, 0);
 
