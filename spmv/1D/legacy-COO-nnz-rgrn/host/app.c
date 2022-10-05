@@ -328,6 +328,7 @@ int main(int argc, char **argv) {
   float input_x_bw_gbps = (1e-9 * input_datas_byte) / input_x_time_sec ;
 
 
+
   printf("\n");
   printf("NR RANKS: ");
   printf("%u", NR_RANKS);
@@ -361,9 +362,10 @@ int main(int argc, char **argv) {
   stopTimer(&timer, 4);
   bool status = true;
   for (i = 0; i< A->nrows; i++) {
-    if (y_host[i] != y[i])
+    if (y_host[i] != y_dpu[i])
         status = false;
   }
+
   if (status) {
       printf("[" ANSI_COLOR_GREEN "OK" ANSI_COLOR_RESET "] Outputs are equal\n");
   } else {

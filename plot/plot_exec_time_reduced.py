@@ -32,6 +32,7 @@ total_final = {}
 output_merge = {}
 cpu_ratio = {}
 vec_per_sec = {}
+dpu_cluster_size = {}
 
 
 resultStruct = {
@@ -60,6 +61,7 @@ for nr_ranks in NR_RANKS:
     output_merge[nr_ranks] = copy.deepcopy(resultStruct)
     cpu_ratio[nr_ranks] = copy.deepcopy(resultStruct)
     vec_per_sec[nr_ranks] = copy.deepcopy(resultStruct)
+    dpu_cluster_size[nr_ranks] = copy.deepcopy(resultStruct)
 
 
 def run_coo(path, dt_in):
@@ -89,6 +91,7 @@ def run_coo(path, dt_in):
             output_merge_ = split_line[12]
             cpu_ratio_ = split_line[13]
             vec_per_sec_ = split_line[14]
+            dpu_cluster_size_ = split_line[15]
 
             if ((datatype.find(dt_in) != -1) and (mtx in MATRIXDICT.keys())):
                 cpu_time[ranks][numamod][int(
@@ -111,6 +114,8 @@ def run_coo(path, dt_in):
                     MATRIXDICT.get(mtx))] = float(cpu_ratio_)
                 vec_per_sec[ranks][numamod][int(
                     MATRIXDICT.get(mtx))] = float(vec_per_sec_)
+                dpu_cluster_size[ranks][numamod][int(
+                    MATRIXDICT.get(mtx))] = int(dpu_cluster_size_)
                 # matrix_names
                 matrix_names[int(MATRIXDICT.get(mtx))] = str(
                     MATRIXDICT_NAMES[int(MATRIXDICT.get(mtx))])
@@ -157,6 +162,7 @@ def main():
             output_merge[ranks],
             cpu_ratio[ranks],
             vec_per_sec[ranks],
+            dpu_cluster_size[ranks]
         ]
 
     # CSV dump
@@ -224,6 +230,10 @@ def main():
             print('')
             print('input_vector/sec({}),'.format(numamod), end='')
             [print(str(i) + ',', end='') for i in v[9][numamod]]
+        for numamod in NUMA_MODES_ID:
+            print('')
+            print('nr dpus per cluster({}),'.format(numamod), end='')
+            [print(str(i) + ',', end='') for i in v[10][numamod]]
 
         print('')
 

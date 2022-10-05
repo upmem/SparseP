@@ -4,11 +4,29 @@ MAX_RANKS = 10
 for i in range(MAX_RANKS):
    NR_RANKS.append(i+1)
 
-NR_RANKS =[1, 16 , 32]
+# WARNING NR_RANKS must always 1 eg : NR_RANKS = [1]
+#NR_RANKS =[1]#, 16 , 32]
+NR_RANKS =[1, 16, 32]
 
 NR_TASKLETS = [16]
 DATATYPES = ["int32"]
 print('test with RANKs ', NR_RANKS)
+
+DPU_CLUSTER_SIZES = {
+    "ldoor.mtx" : 8,
+    "af_shell1.mtx" : 8,
+    "roadNet-TX.mtx": 8,
+    "parabolic_fem.mtx": 8,
+    "poisson3Db.mtx": 8,
+    "delaunay_n19.mtx": 8,
+    "com-Youtube.mtx": 8,
+    "pkustk14.mtx": 8,
+    "rajat31.mtx": 8,
+    "raefsky4.mtx": 8,
+    "delaunay_n13.mtx": 8,
+    "pkustk08.mtx": 8,
+    "wing_nodal.mtx": 8
+}
 
 MATRICES = [
     "ldoor.mtx",
@@ -58,8 +76,9 @@ MATRIXDICT = {
   "wing-nodal"    : 12
 }
 
-NUMA_MODES_ID = ["numadefault", "numaall", "numa01"]
-NUMA_MODES = [""  , "numactl --interleave=all ",
-  "numactl --interleave=0,1 "
-]
+NUMA_MODES_ID = ["numadefault"]#, "numaall", "numa01"]
+NUMA_MODES = [""]
+#  , "numactl --interleave=all ",
+#  "numactl --interleave=0,1 "
+#]
 

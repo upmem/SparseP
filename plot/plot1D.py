@@ -11,7 +11,7 @@ def get_data(rootdir, resultdir):
 
     chart = open(resultdir + "_output.txt", "w")
     chart.write(
-        "NumaMode,Matrix,Datatype,Tl,NrRanks,CpuTime,LoadMatrixTime,LoadMatrixBw,LoadInputBw,TotalTime,KernelTime,KernelGOpsec,OutputMerge,CpuRatio,VecPerSec\n"
+        "NumaMode,Matrix,Datatype,Tl,NrRanks,CpuTime,LoadMatrixTime,LoadMatrixBw,LoadInputBw,TotalTime,KernelTime,KernelGOpsec,OutputMerge,CpuRatio,VecPerSec,DpuClusterSize\n"
     )
 
     for file in os.listdir(rootdir + "/" + resultdir):
@@ -22,6 +22,7 @@ def get_data(rootdir, resultdir):
         datatype = file.split("_")[2]
         tl = file.split("_")[3].replace("tl", "")
         nr_ranks = file.split("_")[4].replace("ranks", "")
+        dpu_cluster_size = file.split("_")[5].replace("dcs", "")
         clock_rate = 1  # in ms, f = 350MHz
 
         avg_cpu_time = [0]
@@ -103,6 +104,7 @@ def get_data(rootdir, resultdir):
                 str(max(avg_output_merge)) + "," +
                 str(max(avg_cpu_process_ratio)) + "," +
                 str(max(avg_vec_per_sec)) + "," +
+                str(dpu_cluster_size) + "," +
                 "\n")
         except:
             print(tmp)

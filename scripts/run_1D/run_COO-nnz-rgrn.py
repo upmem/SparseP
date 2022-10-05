@@ -21,7 +21,7 @@ def run(input_path):
         shutil.rmtree(result_path)
     os.makedirs(result_path, exist_ok=False)
     for file in MATRICES:
-        print(file)
+        dcs = DPU_CLUSTER_SIZES[file]
         for NUMA_MODE in zip(NUMA_MODES_ID, NUMA_MODES):
             run_cmd = NUMA_MODE[1] + "bin/spmv_host " + \
                 " -f " + input_path + file
@@ -30,7 +30,7 @@ def run(input_path):
                     for t in NR_TASKLETS:
                         # Balance Rows across tasklets
                         os.system("make clean")
-                        make_cmd = "make NR_RANKS=" + str(r) + " NR_TASKLETS=" + str(
+                        make_cmd = "make NR_RANKS=" + str(r) + " DPU_CLUSTER_SIZE=" + str(dcs) + " NR_TASKLETS=" + str(
                             t) + " TYPE=" + dt.upper() + " BLNC_TSKLT_ROW=1 BLNC_TSKLT_NNZ=0"
                         print(make_cmd)
                         os.system(make_cmd)
@@ -39,7 +39,7 @@ def run(input_path):
                         r_cmd = run_cmd + " >> " + result_path + \
                             NUMA_MODE[0] + "_" + temp_file
                         r_cmd = r_cmd + "_" + dt + "_tl" + \
-                            str(t) + "_ranks" + str(r) + "_row.out"
+                            str(t) + "_ranks" + str(r) + "_dcs" + str(dcs) + "_row.out"
                         ret = os.system(r_cmd)
                         print(ret)
                         if ret != 0:

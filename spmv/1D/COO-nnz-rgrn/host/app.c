@@ -101,13 +101,14 @@ void free_dpu_pool(dpu_pool_t *this) {
 
 void alloc_dpu_pool(dpu_pool_t *this, uint32_t nr_ranks) {
 
-  this->nr_ranks = nr_ranks;
   // 1) allocate DPUs
   assert(dpu_set == NULL);
 
+  this->nr_dpus = MAX_NR_DPUS_PER_RANK * nr_ranks;
+
   dpu_set = calloc(1, sizeof(struct dpu_set_t));
-  DPU_ASSERT(dpu_alloc_ranks(this->nr_ranks, NULL, dpu_set));
-  DPU_ASSERT(dpu_get_nr_dpus(*dpu_set, &(this->nr_dpus)));
+  DPU_ASSERT(dpu_alloc(this->nr_dpus, NULL, dpu_set));
+  DPU_ASSERT(dpu_get_nr_ranks( *dpu_set,&(this->nr_ranks)));
   printf("[INFO] Nr DPUs %u\n", this->nr_dpus);
   printf("[INFO] Alloc DPUs, NR_DPUS %u NR_RANKS %u\n", this->nr_dpus,
          this->nr_ranks);
@@ -144,24 +145,22 @@ void alloc_dpu_pool(dpu_pool_t *this, uint32_t nr_ranks) {
     this->rank_attached_dpu = malloc(this->nr_dpus * sizeof(uint32_t));
     this->rank_dpu_index = malloc(this->nr_dpus * sizeof(uint32_t));
     uint64_t rank_id = 0;
-    uint64_t dpu_rank_index_ = 0;
+    uint64_t dpu_dpu_cluster_index_ = 0;
     for (uint64_t i = 0; i < this->nr_dpus; i++) {
       assert(rank_id < this->nr_ranks);
       this->rank_attached_dpu[i] = rank_id;
-      this->rank_dpu_index[i] = dpu_rank_index_;
+      this->rank_dpu_index[i] = dpu_dpu_cluster_index_;
 
-      if (dpu_rank_index_ == (this->rank_nr_dpus[rank_id] - 1)) {
-        dpu_rank_index_ = 0;
+      if (dpu_dpu_cluster_index_ == (this->rank_nr_dpus[rank_id] - 1)) {
+        dpu_dpu_cluster_index_ = 0;
         rank_id += 1;
       } else
-        dpu_rank_index_ += 1;
+        dpu_dpu_cluster_index_ += 1;
     }
   }
 }
 dpu_pool_t dpu_pool;
-
-/** @brief numer of DPUs used to partition all NNZ element of one matrix */
-#define MAX_NR_DPUS_PER_RANK 64
+dpu_clusters_t dpu_clusters;
 
 /** @brief dpu set global profiling symbol */
 uint64_t clocks_per_sec;
@@ -180,59 +179,71 @@ int main(int argc, char **argv) {
   // Allocate dpu set and fill dpu poool info
   alloc_dpu_pool(&dpu_pool, NR_RANKS);
 
+  alloc_dpu_clusters(&dpu_clusters, &dpu_pool, dpu_set, DPU_CLUSTER_SIZE);
+
   // split batch across ranks
-  uint32_t batch_size = dpu_pool.nr_ranks;
+  uint32_t batch_size = dpu_clusters.nr_clusters;
+  printf("[INFO] batch_size %u\n", batch_size);
+
 
   // Initialize input data
   A = readCOOMatrix(p.fileName);
   sortCOOMatrix(A);
 
   // Initialize partition data
-  part_info = partition_init(&dpu_pool, NR_TASKLETS);
+  part_info = partition_init(&dpu_pool, &dpu_clusters, NR_TASKLETS);
 
   // Load-balance nnz across DPUs
-  partition_by_nnz(A, part_info, &dpu_pool);
+  partition_by_nnz(A, part_info, &dpu_pool, &dpu_clusters);
+
+
+  //exit(0);
+
+  uint32_t nr_clusters = dpu_clusters.nr_clusters;
+
 
   // Allocate input vector
-  x = (val_dt **)malloc(dpu_pool.nr_ranks * sizeof(val_dt *));
-  for (uint32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++)
-    x[rank_index] = (val_dt *)calloc(A->ncols, sizeof(val_dt));
+  x = (val_dt **)malloc(nr_clusters * sizeof(val_dt *));
+  for (uint32_t cluster_index = 0; cluster_index < nr_clusters; cluster_index++)
+    x[cluster_index] = (val_dt *)calloc(A->ncols, sizeof(val_dt));
 
   // Initialize input vector with arbitrary data
   init_vector(x, batch_size, A->ncols);
 
   // Initialize help data
-  dpu_info = (struct dpu_info_t **)malloc(dpu_pool.nr_ranks *
+  dpu_info = (struct dpu_info_t **)malloc(nr_clusters *
                                           sizeof(struct dpu_info_t *));
   dpu_arguments_t **input_args =
-      (dpu_arguments_t **)malloc(dpu_pool.nr_ranks * sizeof(dpu_arguments_t *));
-  for (uint32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++) {
-    dpu_info[rank_index] = (struct dpu_info_t *)malloc(
-        dpu_pool.rank_nr_dpus[rank_index] * sizeof(struct dpu_info_t));
-    input_args[rank_index] = (dpu_arguments_t *)malloc(
-        dpu_pool.rank_nr_dpus[rank_index] * sizeof(dpu_arguments_t));
+      (dpu_arguments_t **)malloc(nr_clusters * sizeof(dpu_arguments_t *));
+  for (uint32_t cluster_index = 0; cluster_index < nr_clusters; cluster_index++) {
+    dpu_info[cluster_index] = (struct dpu_info_t *)malloc(
+        dpu_clusters.cluster_nr_dpus[cluster_index] * sizeof(struct dpu_info_t));
+    input_args[cluster_index] = (dpu_arguments_t *)malloc(
+        dpu_clusters.cluster_nr_dpus[cluster_index] * sizeof(dpu_arguments_t));
   }
 
   // Max limits for parallel transfers
-  uint64_t *max_rows_per_dpu = calloc(dpu_pool.nr_ranks, sizeof(uint64_t));
-  uint64_t *max_nnz_per_dpu = calloc(dpu_pool.nr_ranks, sizeof(uint64_t));
-  uint64_t *max_rows_per_tasklet = calloc(dpu_pool.nr_ranks, sizeof(uint64_t));
+  uint64_t *max_rows_per_dpu = calloc(nr_clusters, sizeof(uint64_t));
+  uint64_t *max_nnz_per_dpu = calloc(nr_clusters, sizeof(uint64_t));
+  uint64_t *max_rows_per_tasklet = calloc(nr_clusters, sizeof(uint64_t));
 
   // Timer for measurements
   Timer timer;
 
   unsigned int i;
   // Find padding for rows and non-zero elements needed for CPU-DPU transfers
-  for (uint32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++) {
-    i = 0;
-    DPU_FOREACH(ranks[rank_index], dpu, i) {
-      uint32_t rows_per_dpu = part_info[rank_index]->row_split[i + 1] -
-                              part_info[rank_index]->row_split[i];
-      uint32_t prev_rows_dpu = part_info[rank_index]->row_split[i];
-      printf("nr dpus %u, dpu index %u, rows per dpu %u\n",dpu_pool.rank_nr_dpus[rank_index] ,  i, rows_per_dpu);
+  for (uint32_t cluster_index = 0; cluster_index < nr_clusters; cluster_index++) {
+    for (uint32_t i = 0; i < dpu_clusters.cluster_nr_dpus[cluster_index];
+           i++)
+      {
 
-      if (rows_per_dpu > max_rows_per_dpu[rank_index])
-        max_rows_per_dpu[rank_index] = rows_per_dpu;
+      uint32_t rows_per_dpu = part_info[cluster_index]->row_split[i + 1] -
+                              part_info[cluster_index]->row_split[i];
+      uint32_t prev_rows_dpu = part_info[cluster_index]->row_split[i];
+      printf("nr dpus %u, dpu index %u, rows per dpu %u\n", dpu_clusters.cluster_nr_dpus[cluster_index] ,  i, rows_per_dpu);
+
+      if (rows_per_dpu > max_rows_per_dpu[cluster_index])
+        max_rows_per_dpu[cluster_index] = rows_per_dpu;
 
       // Pad data to be transfered for nnzs
       unsigned int nnz = 0, nnz_pad;
@@ -243,41 +254,41 @@ int main(int argc, char **argv) {
       else
         nnz_pad = nnz;
 
-      if (nnz_pad > max_nnz_per_dpu[rank_index])
-        max_nnz_per_dpu[rank_index] = nnz_pad;
+      if (nnz_pad > max_nnz_per_dpu[cluster_index])
+        max_nnz_per_dpu[cluster_index] = nnz_pad;
 
       uint32_t prev_nnz_dpu = 0;
       for (unsigned int r = 0; r < prev_rows_dpu; r++)
         prev_nnz_dpu += A->rows[r];
 
       // Keep information per DPU
-      dpu_info[rank_index][i].rows_per_dpu = rows_per_dpu;
-      dpu_info[rank_index][i].prev_rows_dpu = prev_rows_dpu;
-      dpu_info[rank_index][i].prev_nnz_dpu = prev_nnz_dpu;
-      dpu_info[rank_index][i].nnz = nnz;
-      dpu_info[rank_index][i].nnz_pad = nnz_pad;
+      dpu_info[cluster_index][i].rows_per_dpu = rows_per_dpu;
+      dpu_info[cluster_index][i].prev_rows_dpu = prev_rows_dpu;
+      dpu_info[cluster_index][i].prev_nnz_dpu = prev_nnz_dpu;
+      dpu_info[cluster_index][i].nnz = nnz;
+      dpu_info[cluster_index][i].nnz_pad = nnz_pad;
 
       // Find input arguments per DPU
-      input_args[rank_index][i].nrows = rows_per_dpu;
-      input_args[rank_index][i].tcols = A->ncols;
-      input_args[rank_index][i].tstart_row =
-          dpu_info[rank_index][i].prev_rows_dpu;
+      input_args[cluster_index][i].nrows = rows_per_dpu;
+      input_args[cluster_index][i].tcols = A->ncols;
+      input_args[cluster_index][i].tstart_row =
+          dpu_info[cluster_index][i].prev_rows_dpu;
 
       // Load-balance rows across tasklets
-      partition_tsklt_by_row(part_info[rank_index], rows_per_dpu, NR_TASKLETS);
+      partition_tsklt_by_row(part_info[cluster_index], rows_per_dpu, NR_TASKLETS);
 
       // Find max_rows_per_tasklet
       uint32_t t;
       for (t = 0; t < NR_TASKLETS; t++) {
-        input_args[rank_index][i].start_row[t] =
-            part_info[rank_index]->row_split_tasklet[t];
-        input_args[rank_index][i].rows_per_tasklet[t] =
-            part_info[rank_index]->row_split_tasklet[t + 1] -
-            part_info[rank_index]->row_split_tasklet[t];
-        if (input_args[rank_index][i].rows_per_tasklet[t] >
-            max_rows_per_tasklet[rank_index])
-          max_rows_per_tasklet[rank_index] =
-              input_args[rank_index][i].rows_per_tasklet[t];
+        input_args[cluster_index][i].start_row[t] =
+            part_info[cluster_index]->row_split_tasklet[t];
+        input_args[cluster_index][i].rows_per_tasklet[t] =
+            part_info[cluster_index]->row_split_tasklet[t + 1] -
+            part_info[cluster_index]->row_split_tasklet[t];
+        if (input_args[cluster_index][i].rows_per_tasklet[t] >
+            max_rows_per_tasklet[cluster_index])
+          max_rows_per_tasklet[cluster_index] =
+              input_args[cluster_index][i].rows_per_tasklet[t];
       }
 
       // Find input arguments per DPU
@@ -285,86 +296,106 @@ int main(int argc, char **argv) {
       for (unsigned int tasklet_id = 0; tasklet_id < NR_TASKLETS;
            tasklet_id++) {
         uint32_t cur_nnz = 0;
-        for (unsigned int r = dpu_info[rank_index][i].prev_rows_dpu +
-                              input_args[rank_index][i].start_row[tasklet_id];
-             r < dpu_info[rank_index][i].prev_rows_dpu +
-                     input_args[rank_index][i].start_row[tasklet_id] +
-                     input_args[rank_index][i].rows_per_tasklet[tasklet_id];
+        for (unsigned int r = dpu_info[cluster_index][i].prev_rows_dpu +
+                              input_args[cluster_index][i].start_row[tasklet_id];
+             r < dpu_info[cluster_index][i].prev_rows_dpu +
+                     input_args[cluster_index][i].start_row[tasklet_id] +
+                     input_args[cluster_index][i].rows_per_tasklet[tasklet_id];
              r++)
-          if (r < dpu_info[rank_index][i].prev_rows_dpu +
-                      dpu_info[rank_index][i].rows_per_dpu) {
+          if (r < dpu_info[cluster_index][i].prev_rows_dpu +
+                      dpu_info[cluster_index][i].rows_per_dpu) {
             cur_nnz += A->rows[r];
           }
-        input_args[rank_index][i].start_nnz[tasklet_id] = prev_nnz;
-        input_args[rank_index][i].nnz_per_tasklet[tasklet_id] = cur_nnz;
+        input_args[cluster_index][i].start_nnz[tasklet_id] = prev_nnz;
+        input_args[cluster_index][i].nnz_per_tasklet[tasklet_id] = cur_nnz;
         prev_nnz += cur_nnz;
       }
     }
   }
 
   // Initializations for parallel transfers with padding needed
-  for (uint32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++) {
-    if (max_rows_per_dpu[rank_index] % 2 == 1)
-      max_rows_per_dpu[rank_index]++;
-    if (max_nnz_per_dpu[rank_index] % (8 / byte_dt) != 0)
-      max_nnz_per_dpu[rank_index] +=
-          ((8 / byte_dt) - (max_nnz_per_dpu[rank_index] % (8 / byte_dt)));
-    if (max_rows_per_tasklet[rank_index] % (8 / byte_dt) != 0)
-      max_rows_per_tasklet[rank_index] +=
-          ((8 / byte_dt) - (max_rows_per_tasklet[rank_index] % (8 / byte_dt)));
+  for (uint32_t cluster_index = 0; cluster_index < nr_clusters; cluster_index++) {
+    if (max_rows_per_dpu[cluster_index] % 2 == 1)
+      max_rows_per_dpu[cluster_index]++;
+    if (max_nnz_per_dpu[cluster_index] % (8 / byte_dt) != 0)
+      max_nnz_per_dpu[cluster_index] +=
+          ((8 / byte_dt) - (max_nnz_per_dpu[cluster_index] % (8 / byte_dt)));
+    if (max_rows_per_tasklet[cluster_index] % (8 / byte_dt) != 0)
+      max_rows_per_tasklet[cluster_index] +=
+          ((8 / byte_dt) - (max_rows_per_tasklet[cluster_index] % (8 / byte_dt)));
   }
 
-  uint32_t rank_max_rows_per_tasklet = max_rows_per_tasklet[0];
-  uint32_t rank_max_rows_per_dpu = max_rows_per_dpu[0];
-  uint32_t rank_max_nnz_per_dpu = max_nnz_per_dpu[0];
-  for (uint32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++) {
-    if (rank_max_rows_per_tasklet < max_rows_per_tasklet[rank_index])
-      rank_max_rows_per_tasklet = max_rows_per_tasklet[rank_index];
-    if (rank_max_rows_per_dpu < max_rows_per_dpu[rank_index])
-      rank_max_rows_per_dpu = max_rows_per_dpu[rank_index];
-    if (rank_max_nnz_per_dpu < max_nnz_per_dpu[rank_index])
-      rank_max_nnz_per_dpu = max_nnz_per_dpu[rank_index];
+  uint32_t cluster_max_rows_per_tasklet = max_rows_per_tasklet[0];
+  uint32_t cluster_max_rows_per_dpu = max_rows_per_dpu[0];
+  uint32_t cluster_max_nnz_per_dpu = max_nnz_per_dpu[0];
+  for (uint32_t cluster_index = 0; cluster_index < nr_clusters; cluster_index++) {
+    if (cluster_max_rows_per_tasklet < max_rows_per_tasklet[cluster_index])
+      cluster_max_rows_per_tasklet = max_rows_per_tasklet[cluster_index];
+    if (cluster_max_rows_per_dpu < max_rows_per_dpu[cluster_index])
+      cluster_max_rows_per_dpu = max_rows_per_dpu[cluster_index];
+    if (cluster_max_nnz_per_dpu < max_nnz_per_dpu[cluster_index])
+      cluster_max_nnz_per_dpu = max_nnz_per_dpu[cluster_index];
   }
+
+  uint32_t max_matrix_size_per_dpu_byte =  sizeof(struct elem_t) * cluster_max_nnz_per_dpu;
+  uint32_t max_output_size_per_dpu_byte =  cluster_max_rows_per_tasklet * NR_TASKLETS * sizeof(val_dt);
+  uint32_t max_input_size_pet_dpu_byte = A->ncols * sizeof(val_dt);
+
+  printf("[INFO] max Non Zero Elements per DPU %u\n", cluster_max_nnz_per_dpu);
+  printf("[INFO] max Non Zero Elements per DPU (MByte) %f\n",
+         1e-6 * max_matrix_size_per_dpu_byte);
+  printf("[INFO] MRAM SIZE %f (MB)\n", 1e-6 * MRAM_SIZE_BYTE);
+
+  assert("Sparse Matrix has too many Non Zeros Elements to fit DPU MRAM with this Cluster Size %u\n" && max_matrix_size_per_dpu_byte < MRAM_SIZE_BYTE);
+
+  uint32_t max_mram_footprint_byte = max_matrix_size_per_dpu_byte +
+                                     max_output_size_per_dpu_byte +
+                                     max_input_size_pet_dpu_byte;
+  printf("[INFO] max total MRAM footprint (MByte) %f\n",
+         1e-6 * (float)max_mram_footprint_byte),
+
+  assert("(Sparse Matrix NNZ + Input + Output) doesn't fit DPU MRAM %u\n" && max_mram_footprint_byte < MRAM_SIZE_BYTE);
+
   // add output datas
   uint64_t ***y_dpu_row_index;
   uint64_t ***y_dpu_cur_rows;
   uint64_t ***y_dpu_dest_index;
-  y_dpu_row_index = malloc(  dpu_pool.nr_ranks * sizeof(uint64_t**));
-  y_dpu_cur_rows =  malloc(  dpu_pool.nr_ranks * sizeof(uint64_t**));
-  y_dpu_dest_index =  malloc(  dpu_pool.nr_ranks * sizeof(uint64_t**));
-  for (uint32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++) {
+  y_dpu_row_index = malloc(  nr_clusters * sizeof(uint64_t**));
+  y_dpu_cur_rows =  malloc(  nr_clusters * sizeof(uint64_t**));
+  y_dpu_dest_index =  malloc(  nr_clusters * sizeof(uint64_t**));
+  for (uint32_t cluster_index = 0; cluster_index < nr_clusters; cluster_index++) {
     unsigned int n, j, t;
-    y_dpu_row_index[rank_index] = malloc( dpu_pool.rank_nr_dpus[rank_index] * sizeof(uint64_t*));
-    y_dpu_cur_rows[rank_index] =  malloc( dpu_pool.rank_nr_dpus[rank_index] * sizeof(uint64_t*));
-    y_dpu_dest_index[rank_index] =  malloc( dpu_pool.rank_nr_dpus[rank_index] * sizeof(uint64_t*));
-    for (n = 0; n < dpu_pool.rank_nr_dpus[rank_index]; n++) {
-      y_dpu_row_index[rank_index][n] = malloc( NR_TASKLETS * sizeof(uint64_t));
-      y_dpu_cur_rows[rank_index][n] = malloc(NR_TASKLETS * sizeof(uint64_t));
-      y_dpu_dest_index[rank_index][n] = malloc(NR_TASKLETS * sizeof(uint64_t));
+    y_dpu_row_index[cluster_index] = malloc( dpu_clusters.cluster_nr_dpus[cluster_index] * sizeof(uint64_t*));
+    y_dpu_cur_rows[cluster_index] =  malloc( dpu_clusters.cluster_nr_dpus[cluster_index] * sizeof(uint64_t*));
+    y_dpu_dest_index[cluster_index] =  malloc( dpu_clusters.cluster_nr_dpus[cluster_index] * sizeof(uint64_t*));
+    for (n = 0; n < dpu_clusters.cluster_nr_dpus[cluster_index]; n++) {
+      y_dpu_row_index[cluster_index][n] = malloc( NR_TASKLETS * sizeof(uint64_t));
+      y_dpu_cur_rows[cluster_index][n] = malloc(NR_TASKLETS * sizeof(uint64_t));
+      y_dpu_dest_index[cluster_index][n] = malloc(NR_TASKLETS * sizeof(uint64_t));
       //for (t = 0; t < NR_TASKLETS; t++) {
-      //   y_dpu_row_index[rank_index][n][t] = malloc( rank_max_rows_per_tasklet * sizeof(uint64_t));
+      //   y_dpu_row_index[cluster_index][n][t] = malloc( cluster_max_rows_per_tasklet * sizeof(uint64_t));
       //}
     }
   }
 
-  for (uint32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++) {
+  for (uint32_t cluster_index = 0; cluster_index < nr_clusters; cluster_index++) {
     i = 0;
     unsigned int n, j, t;
-    for (n = 0; n < dpu_pool.rank_nr_dpus[rank_index]; n++) {
+    for (n = 0; n < dpu_clusters.cluster_nr_dpus[cluster_index]; n++) {
       for (t = 0; t < NR_TASKLETS; t++) {
-        unsigned int cur_rows = input_args[rank_index][n].rows_per_tasklet[t];
-        if ((cur_rows + input_args[rank_index][n].start_row[t] >
-             dpu_info[rank_index][n].rows_per_dpu) &&
+        unsigned int cur_rows = input_args[cluster_index][n].rows_per_tasklet[t];
+        if ((cur_rows + input_args[cluster_index][n].start_row[t] >
+             dpu_info[cluster_index][n].rows_per_dpu) &&
             (cur_rows != 0))
-              cur_rows = dpu_info[rank_index][n].rows_per_dpu -
-                     input_args[rank_index][n].start_row[t];
+              cur_rows = dpu_info[cluster_index][n].rows_per_dpu -
+                     input_args[cluster_index][n].start_row[t];
 
-        y_dpu_cur_rows[rank_index][n][t] = cur_rows;
+        y_dpu_cur_rows[cluster_index][n][t] = cur_rows;
         uint32_t row_index =
-            n * NR_TASKLETS * rank_max_rows_per_tasklet +
-            t * max_rows_per_tasklet[rank_index];
-        y_dpu_row_index[rank_index][n][t] = row_index;
-        y_dpu_dest_index[rank_index][n][t]  = i;
+            n * NR_TASKLETS * cluster_max_rows_per_tasklet +
+            t * max_rows_per_tasklet[cluster_index];
+        y_dpu_row_index[cluster_index][n][t] = row_index;
+        y_dpu_dest_index[cluster_index][n][t]  = i;
         i+= cur_rows;
       }
     }
@@ -373,34 +404,43 @@ int main(int argc, char **argv) {
   // Re-allocations
   A->nnzs = (struct elem_t *)realloc(
       A->nnzs,
-      (rank_max_nnz_per_dpu)*max_nr_dpu_per_rank * sizeof(struct elem_t));
+      (cluster_max_nnz_per_dpu)*max_nr_dpu_per_rank * sizeof(struct elem_t));
 
-  y = (val_dt **)malloc(dpu_pool.nr_ranks * sizeof(val_dt *));
-  for (uint32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++)
-    y[rank_index] = (val_dt *)calloc(dpu_pool.nr_dpus * NR_TASKLETS *
-                                         max_rows_per_tasklet[rank_index],
+  y = (val_dt **)malloc(nr_clusters * sizeof(val_dt *));
+  for (uint32_t cluster_index = 0; cluster_index < nr_clusters; cluster_index++)
+    y[cluster_index] = (val_dt *)calloc(dpu_pool.nr_dpus * NR_TASKLETS *
+                                         max_rows_per_tasklet[cluster_index],
                                      sizeof(val_dt));
-  val_dt **y_dpu = (val_dt **)malloc(dpu_pool.nr_ranks * sizeof(val_dt *));
-  for (uint32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++)
-    y_dpu[rank_index] = (val_dt *)calloc(A->nrows, sizeof(val_dt));
+  val_dt **y_dpu = (val_dt **)malloc(nr_clusters * sizeof(val_dt *));
+  for (uint32_t cluster_index = 0; cluster_index < nr_clusters; cluster_index++)
+    y_dpu[cluster_index] = (val_dt *)calloc(A->nrows, sizeof(val_dt));
 
 
   // Count total number of bytes to be transfered in MRAM of DPU
   // unsigned long int total_bytes;
-  // total_bytes = ((rank_max_nnz_per_dpu) * sizeof(struct elem_t)) +
+  // total_bytes = ((cluster_max_nnz_per_dpu) * sizeof(struct elem_t)) +
   //               (A->ncols * sizeof(val_dt)) +
-  //               (rank_max_rows_per_tasklet * NR_TASKLETS * sizeof(val_dt));
+  //               (cluster_max_rows_per_tasklet * NR_TASKLETS * sizeof(val_dt));
   // assert(total_bytes <= DPU_CAPACITY && "Bytes needed exceeded MRAM size");
 
 
   // Copy input arguments to DPUs
-  for (u_int32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++) {
-    i = 0;
-    DPU_FOREACH(ranks[rank_index], dpu, i) {
-      input_args[rank_index][i].max_rows_per_tasklet =
-          max_rows_per_tasklet[rank_index];
-      input_args[rank_index][i].rank_max_rows_per_tasklet = rank_max_rows_per_tasklet;
-      DPU_ASSERT(dpu_prepare_xfer(dpu, input_args[rank_index] + i));
+  i = 0;
+  uint32_t dpu_index;
+  uint32_t dpu_cluster_index = 0;
+  uint32_t cluster_index = 0;
+  DPU_FOREACH(*dpu_set, dpu, dpu_index) {
+    input_args[cluster_index][dpu_cluster_index].max_rows_per_tasklet =
+        max_rows_per_tasklet[cluster_index];
+    input_args[cluster_index][dpu_cluster_index].cluster_max_rows_per_tasklet = cluster_max_rows_per_tasklet;
+    DPU_ASSERT(dpu_prepare_xfer(dpu, input_args[cluster_index] + dpu_cluster_index));
+
+    // update cluster index
+    dpu_cluster_index++;
+    if (!(dpu_cluster_index < dpu_clusters.cluster_nr_dpus[cluster_index]))
+    {
+        dpu_cluster_index = 0;
+        cluster_index++;
     }
   }
   DPU_ASSERT(dpu_push_xfer(*dpu_set, DPU_XFER_TO_DPU, "DPU_INPUT_ARGUMENTS", 0,
@@ -409,19 +449,24 @@ int main(int argc, char **argv) {
   // Copy input matrix to DPUs
   startTimer(&timer, 0);
 
-  // Copy input array
-  for (u_int32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++) {
-    i = 0;
-    DPU_FOREACH(ranks[rank_index], dpu, i) {
-      DPU_ASSERT(dpu_prepare_xfer(
-          dpu, A->nnzs + dpu_info[rank_index][i].prev_nnz_dpu));
+  dpu_cluster_index = 0;
+  cluster_index = 0;
+  DPU_FOREACH(*dpu_set, dpu, dpu_index) {
+    DPU_ASSERT(dpu_prepare_xfer(
+        dpu, A->nnzs + dpu_info[cluster_index][dpu_cluster_index].prev_nnz_dpu));
+    // update cluster index
+    dpu_cluster_index++;
+    if (!(dpu_cluster_index < dpu_clusters.cluster_nr_dpus[cluster_index]))
+    {
+        dpu_cluster_index = 0;
+        cluster_index++;
     }
   }
   DPU_ASSERT(dpu_push_xfer(
       *dpu_set, DPU_XFER_TO_DPU, DPU_MRAM_HEAP_POINTER_NAME,
-      rank_max_rows_per_tasklet * NR_TASKLETS * sizeof(val_dt) +
+      cluster_max_rows_per_tasklet * NR_TASKLETS * sizeof(val_dt) +
           A->ncols * sizeof(val_dt),
-      rank_max_nnz_per_dpu * sizeof(struct elem_t), DPU_XFER_ASYNC));
+      cluster_max_nnz_per_dpu * sizeof(struct elem_t), DPU_XFER_ASYNC));
 
   dpu_sync(*dpu_set);
   stopTimer(&timer, 0);
@@ -435,15 +480,21 @@ int main(int argc, char **argv) {
 
   // Copy input vector  to DPUs
   startTimer(&timer, 1);
-  for (u_int32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++) {
-    i = 0;
-    DPU_FOREACH(ranks[rank_index], dpu, i) {
-      DPU_ASSERT(dpu_prepare_xfer(dpu, x[rank_index]));
+  dpu_cluster_index = 0;
+  cluster_index = 0;
+  DPU_FOREACH(*dpu_set, dpu, dpu_index) {
+    DPU_ASSERT(dpu_prepare_xfer(dpu, x[cluster_index]));
+    // update cluster index
+    dpu_cluster_index++;
+    if (!(dpu_cluster_index < dpu_clusters.cluster_nr_dpus[cluster_index]))
+    {
+        dpu_cluster_index = 0;
+        cluster_index++;
     }
   }
   DPU_ASSERT(dpu_push_xfer(
       *dpu_set, DPU_XFER_TO_DPU, DPU_MRAM_HEAP_POINTER_NAME,
-      rank_max_rows_per_tasklet * NR_TASKLETS * sizeof(val_dt),
+      cluster_max_rows_per_tasklet * NR_TASKLETS * sizeof(val_dt),
       A->ncols * sizeof(val_dt), DPU_XFER_ASYNC));
 
 
@@ -458,33 +509,41 @@ int main(int argc, char **argv) {
 #endif
 
   // Retrieve results for output vector from DPUs
-  for (uint32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++) {
-    i = 0;
-    DPU_FOREACH(ranks[rank_index], dpu, i) {
-      DPU_ASSERT(dpu_prepare_xfer(
-          dpu, &(y[rank_index]
-                  [i * NR_TASKLETS * rank_max_rows_per_tasklet])));
+  dpu_cluster_index = 0;
+  cluster_index = 0;
+  DPU_FOREACH(*dpu_set, dpu, dpu_index) {
+    DPU_ASSERT(dpu_prepare_xfer(
+        dpu, &(y[cluster_index]
+                [dpu_cluster_index * NR_TASKLETS * cluster_max_rows_per_tasklet])));
+    // update cluster index
+    dpu_cluster_index++;
+    if (!(dpu_cluster_index < dpu_clusters.cluster_nr_dpus[cluster_index]))
+    {
+        dpu_cluster_index = 0;
+        cluster_index++;
     }
   }
   DPU_ASSERT(dpu_push_xfer(
       *dpu_set, DPU_XFER_FROM_DPU, DPU_MRAM_HEAP_POINTER_NAME, 0,
-      NR_TASKLETS * rank_max_rows_per_tasklet * sizeof(val_dt),
+      NR_TASKLETS * cluster_max_rows_per_tasklet * sizeof(val_dt),
       DPU_XFER_ASYNC));
+
+
   dpu_sync(*dpu_set);
   stopTimer(&timer, 1);
 
   startTimer(&timer, 2);
   // #pragma omp parallel for
-  for (uint32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++) {
+  for (uint32_t cluster_index = 0; cluster_index < nr_clusters; cluster_index++) {
     i = 0;
     unsigned int n, j, t;
-    for (n = 0; n < dpu_pool.rank_nr_dpus[rank_index]; n++) {
+    for (n = 0; n < dpu_clusters.cluster_nr_dpus[cluster_index]; n++) {
       // #pragma omp parallel for
       for (t = 0; t < NR_TASKLETS; t++) {
-        uint32_t cur_rows = y_dpu_cur_rows[rank_index][n][t] ;
-        uint64_t row_index_start = y_dpu_row_index[rank_index][n][t];
-        uint64_t y_dpu_dest_index_start  = y_dpu_dest_index[rank_index][n][t];
-        memcpy(&(y_dpu[rank_index][y_dpu_dest_index_start]), &(y[rank_index][row_index_start]), cur_rows * sizeof(val_dt));
+        uint32_t cur_rows = y_dpu_cur_rows[cluster_index][n][t] ;
+        uint64_t row_index_start = y_dpu_row_index[cluster_index][n][t];
+        uint64_t y_dpu_dest_index_start  = y_dpu_dest_index[cluster_index][n][t];
+        memcpy(&(y_dpu[cluster_index][y_dpu_dest_index_start]), &(y[cluster_index][row_index_start]), cur_rows * sizeof(val_dt));
       }
     }
   }
@@ -526,8 +585,8 @@ int main(int argc, char **argv) {
   float kernel_time_msec = (1e3 * (float)kernel_time_sec);
 
   // Print timing results
-  float input_datas_byte = (float)(NR_RANKS * 64 * A->ncols * sizeof(val_dt)) ;
-  float vec_per_sec =  (float)(NR_RANKS)/timer.time_sec[1];
+  float input_datas_byte = (float)(dpu_pool.nr_dpus * A->ncols * sizeof(val_dt)) ;
+  float vec_per_sec =  (float)(batch_size)/timer.time_sec[1];
   float nr_op = (A->nnz);
 
   float input_x_time_sec = (float)(timer.time_sec[1]) - (float)(kernel_time_sec);
@@ -561,9 +620,9 @@ int main(int argc, char **argv) {
 
 #if CHECK_CORR
   // Check output
-  val_dt **y_host = (val_dt **)malloc(dpu_pool.nr_ranks * sizeof(val_dt *));
-  for  (uint32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++)
-    y_host[rank_index] = (val_dt *)calloc(A->nrows, sizeof(val_dt));
+  val_dt **y_host = (val_dt **)malloc(nr_clusters * sizeof(val_dt *));
+  for  (uint32_t cluster_index = 0; cluster_index < nr_clusters; cluster_index++)
+    y_host[cluster_index] = (val_dt *)calloc(A->nrows, sizeof(val_dt));
 
   startTimer(&timer, 4);
   spmv_host(y_host, A, x, batch_size);
@@ -584,68 +643,55 @@ int main(int argc, char **argv) {
     return -1;
   }
   // dealloc host result vector
-  for (uint32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++)
-    free(y_host[rank_index]);
+  for (uint32_t cluster_index = 0; cluster_index < nr_clusters; cluster_index++)
+    free(y_host[cluster_index]);
   free(y_host);
   printf("\n");
   printf("CPU ");
   printTimer(&timer, 4);
 #endif
   // Deallocation
-  for (uint32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++) {
+  for (uint32_t cluster_index = 0; cluster_index < nr_clusters; cluster_index++) {
     unsigned int n, j, t;
-    for (n = 0; n < dpu_pool.rank_nr_dpus[rank_index]; n++) {
-      free(y_dpu_row_index[rank_index][n]);
-      free(y_dpu_cur_rows[rank_index][n] );
+    for (n = 0; n < dpu_clusters.cluster_nr_dpus[cluster_index]; n++) {
+      free(y_dpu_row_index[cluster_index][n]);
+      free(y_dpu_cur_rows[cluster_index][n] );
     }
   }
-  for (uint32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++) {
+  for (uint32_t cluster_index = 0; cluster_index < nr_clusters; cluster_index++) {
     unsigned int n, j, t;
-    free(y_dpu_row_index[rank_index]);
-    free(y_dpu_cur_rows[rank_index]);
+    free(y_dpu_row_index[cluster_index]);
+    free(y_dpu_cur_rows[cluster_index]);
   }
   free(y_dpu_row_index);
   free(y_dpu_cur_rows);
-
-
-
-
-
-
-
-
-
-
-
-
-
 
   free(max_rows_per_dpu);
   free(max_nnz_per_dpu);
   free(max_rows_per_tasklet);
 
-  for (uint32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++) {
-    free(dpu_info[rank_index]);
-    free(input_args[rank_index]);
+  for (uint32_t cluster_index = 0; cluster_index < nr_clusters; cluster_index++) {
+    free(dpu_info[cluster_index]);
+    free(input_args[cluster_index]);
   }
 
   free(dpu_info);
   free(input_args);
-  for (uint32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++)
-    free(y_dpu[rank_index]);
+  for (uint32_t cluster_index = 0; cluster_index < nr_clusters; cluster_index++)
+    free(y_dpu[cluster_index]);
   free(y_dpu);
 
   freeCOOMatrix(A);
 
-  for (uint32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++)
-    free(x[rank_index]);
+  for (uint32_t cluster_index = 0; cluster_index < nr_clusters; cluster_index++)
+    free(x[cluster_index]);
   free(x);
 
-  for (uint32_t rank_index = 0; rank_index < dpu_pool.nr_ranks; rank_index++)
-    free(y[rank_index]);
+  for (uint32_t cluster_index = 0; cluster_index < nr_clusters; cluster_index++)
+    free(y[cluster_index]);
   free(y);
 
-  partition_free(part_info, &dpu_pool);
+  partition_free(part_info, &dpu_clusters, &dpu_pool);
   free_dpu_pool(&dpu_pool);
 
   return 0;

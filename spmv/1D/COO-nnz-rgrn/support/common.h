@@ -13,7 +13,7 @@ typedef struct {
     uint32_t rows_per_tasklet[NR_TASKLETS];
     uint32_t start_nnz[NR_TASKLETS];
     uint32_t nnz_per_tasklet[NR_TASKLETS];
-    uint64_t rank_max_rows_per_tasklet;
+    uint64_t cluster_max_rows_per_tasklet;
 } dpu_arguments_t;
 
 #endif

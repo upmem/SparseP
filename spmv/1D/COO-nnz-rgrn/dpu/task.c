@@ -60,7 +60,7 @@ int main() {
   // Load parameters
   uint32_t nrows = DPU_INPUT_ARGUMENTS.nrows;
   uint32_t max_rows_per_tasklet = DPU_INPUT_ARGUMENTS.max_rows_per_tasklet;
-  uint64_t rank_max_rows_per_tasklet = DPU_INPUT_ARGUMENTS.rank_max_rows_per_tasklet;
+  uint64_t cluster_max_rows_per_tasklet = DPU_INPUT_ARGUMENTS.cluster_max_rows_per_tasklet;
   uint32_t tcols = DPU_INPUT_ARGUMENTS.tcols;
   uint32_t tstart_row = DPU_INPUT_ARGUMENTS.tstart_row;
   uint32_t start_nnz = DPU_INPUT_ARGUMENTS.start_nnz[tasklet_id];
@@ -72,7 +72,7 @@ int main() {
   uint32_t mram_temp_addr_y;
   uint32_t mram_base_addr_x =
       (uint32_t)(DPU_MRAM_HEAP_POINTER +
-                 (rank_max_rows_per_tasklet * NR_TASKLETS * sizeof(val_dt)));
+                 (cluster_max_rows_per_tasklet * NR_TASKLETS * sizeof(val_dt)));
   uint32_t mram_base_addr_elems =
       (uint32_t)(mram_base_addr_x + (tcols * sizeof(val_dt)));
   mram_base_addr_y =
