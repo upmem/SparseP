@@ -126,7 +126,7 @@ void partition_by_nnz(struct COOMatrix *cooMtx, struct partition_info_t **part_i
         printf("end split count %u\n", split_cnt);
 
         // Fill the last split with remaining elements
-        if (curr_nnz < nnz_per_split && split_cnt <= cluster_nr_dpus) {
+        if (curr_nnz < nnz_per_split && split_cnt < cluster_nr_dpus) {
             part_info[cluster_index]->row_split[++split_cnt] = cooMtx->nrows;
         }
         printf("split cnt %u , rows nr dpu %u \n", split_cnt, part_info[cluster_index]->row_split[split_cnt]);
